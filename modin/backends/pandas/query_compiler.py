@@ -2909,3 +2909,17 @@ class PandasQueryCompilerView(PandasQueryCompiler):
             return self.index_map.loc[indices].index
         elif axis in ["col", "columns"]:
             return self.columns_map.loc[indices].index
+
+    def _get_info(self, **kwargs):
+        """Returns the memory usage of each column.
+
+        Returns:
+            Series containing the memory usage of each column.
+        """
+
+        def memory_usage_builder(df, **kwargs):
+            return df.memory_usage(index=False, deep=deep)
+
+        deep = kwargs.get("deep", False)
+        func = self._prepare_method(memory_usage_builder, **kwargs)
+        return self._full_axis_reduce(func, 0)
