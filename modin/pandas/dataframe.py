@@ -728,26 +728,43 @@ class DataFrame(BasePandasDataset):
         Returns:
             Prints the summary of a DataFrame and returns None.
         """
+
+        temp = self._query_compiler._get_info(index=False, deep=True)
+        print(temp)
+        # result = self._reduce_dimension(
+        #     temp
+        # )
+        # print('-' * 20)
+        # print((result))
+        # for i, v in zip(result.index, result):
+        #     print("index: ", i)
+        #     print("value type: ", type(v))
+        #     print("value: ", v)
+        #     print("~"*20)
+        # print('=' * 20)
+        index_value = self.index.memory_usage(deep=True)
+        # print(Series(index_value, index=["Index"]).append(result))
+
         # We will default to pandas because it will be faster than doing two passes
         # over the data
-        buf = sys.stdout if not buf else buf
-        import io
-
-        with io.StringIO() as tmp_buf:
-            self._default_to_pandas(
-                pandas.DataFrame.info,
-                verbose=verbose,
-                buf=tmp_buf,
-                max_cols=max_cols,
-                memory_usage=memory_usage,
-                null_counts=null_counts,
-            )
-            result = tmp_buf.getvalue()
-            result = result.replace(
-                "pandas.core.frame.DataFrame", "modin.pandas.dataframe.DataFrame"
-            )
-            buf.write(result)
-        return None
+        # buf = sys.stdout if not buf else buf
+        # import io
+        #
+        # with io.StringIO() as tmp_buf:
+        #     self._default_to_pandas(
+        #         pandas.DataFrame.info,
+        #         verbose=verbose,
+        #         buf=tmp_buf,
+        #         max_cols=max_cols,
+        #         memory_usage=memory_usage,
+        #         null_counts=null_counts,
+        #     )
+        #     result = tmp_buf.getvalue()
+        #     result = result.replace(
+        #         "pandas.core.frame.DataFrame", "modin.pandas.dataframe.DataFrame"
+        #     )
+        #     buf.write(result)
+        # return None
 
     def insert(self, loc, column, value, allow_duplicates=False):
         """Insert column into DataFrame at specified location.
@@ -1026,9 +1043,11 @@ class DataFrame(BasePandasDataset):
             then the first value of the Series will be 'Index' with its memory usage.
         """
         if index:
+            temp = self._query_compiler.memory_usage(index=False, deep=deep)
             result = self._reduce_dimension(
-                self._query_compiler.memory_usage(index=False, deep=deep)
+                temp
             )
+
             index_value = self.index.memory_usage(deep=deep)
             return Series(index_value, index=["Index"]).append(result)
         return super(DataFrame, self).memory_usage(index=index, deep=deep)

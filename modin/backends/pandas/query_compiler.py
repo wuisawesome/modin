@@ -15,6 +15,7 @@ from pandas.core.dtypes.common import (
 from pandas.core.index import ensure_index
 from pandas.core.base import DataError
 
+from modin.backends.pandas.pandas_metadata import PandasMetaData
 from modin.engines.base.frame.partition_manager import BaseFrameManager
 from modin.error_message import ErrorMessage
 from modin.backends.base.query_compiler import BaseQueryCompiler
@@ -39,38 +40,10 @@ class PandasQueryCompiler(BaseQueryCompiler):
             self._dtype_cache = dtypes
 
     # Index, columns and dtypes objects
-    _dtype_cache = None
+    _metadata = None
 
     def _get_dtype(self):
-        calculate_dtype = False
-        if self._dtype_cache is None:
-            calculate_dtype = True
-        else:
-            if len(self.columns) != len(self._dtype_cache):
-                if all(col in self._dtype_cache.index for col in self.columns):
-                    self._dtype_cache = pandas.Series(
-                        {col: self._dtype_cache[col] for col in self.columns}
-                    )
-                else:
-                    calculate_dtype = True
-            elif not self._dtype_cache.equals(self.columns):
-                self._dtype_cache.index = self.columns
-        if calculate_dtype:
-
-            def dtype_builder(df):
-                return df.apply(lambda row: find_common_type(row.values), axis=0)
-
-            map_func = self._prepare_method(
-                self._build_mapreduce_func(lambda df: df.dtypes)
-            )
-            reduce_func = self._build_mapreduce_func(dtype_builder)
-            # For now we will use a pandas Series for the dtypes.
-            self._dtype_cache = (
-                self._full_reduce(0, map_func, reduce_func).to_pandas().iloc[0]
-            )
-            # reset name to None because we use "__reduced__" internally
-            self._dtype_cache.name = None
-        return self._dtype_cache
+        return self._metadata.
 
     def _set_dtype(self, dtypes):
         self._dtype_cache = dtypes
@@ -150,6 +123,28 @@ class PandasQueryCompiler(BaseQueryCompiler):
     columns = property(_get_columns, _set_columns)
     index = property(_get_index, _set_index)
     # END Index, columns, and dtypes objects
+
+    @property
+    def info(self, **kwargs):
+        """Returns the memory usage of each column.
+
+        Returns:
+            Series containing the memory usage of each column.
+        """
+        if not self._metadata:
+            def get_info_builder(df, **kwargs):
+                dtypes = df.dtypes
+                counts = df.count()
+                mem_usage_deep = df.memory_usage(index=False, deep=True)
+                mem_usage_shallow = df.memory_usage(index=False, deep=False)
+                return pandas.Series(zip(dtypes, counts, mem_usage_deep, mem_usage_shallow), index=dtypes.index)
+
+            func = self._build_mapreduce_func(get_info_builder, **kwargs)
+            result = self._full_axis_reduce(0, func)
+
+            self._metadata = PandasMetaData(*(result.applymap(lambda x: x[i]) for i in range(4)))
+
+        return self._metadata
 
     # Internal methods
     # These methods are for building the correct answer in a modular way.
@@ -1272,10 +1267,12 @@ class PandasQueryCompiler(BaseQueryCompiler):
         """
 
         def memory_usage_builder(df, **kwargs):
-            return df.memory_usage(**kwargs)
+            result = df.memory_usage(**kwargs)
+            return result
 
         func = self._build_mapreduce_func(memory_usage_builder, **kwargs)
-        return self._full_axis_reduce(0, func)
+        result = self._full_axis_reduce(0, func)
+        return result
 
     def nunique(self, **kwargs):
         """Returns the number of unique items over each column or row.
@@ -2581,17 +2578,3 @@ class PandasQueryCompilerView(PandasQueryCompiler):
             return self.index_map.loc[indices].index
         elif axis in ["col", "columns"]:
             return self.columns_map.loc[indices].index
-
-    def _get_info(self, **kwargs):
-        """Returns the memory usage of each column.
-
-        Returns:
-            Series containing the memory usage of each column.
-        """
-
-        def memory_usage_builder(df, **kwargs):
-            return df.memory_usage(index=False, deep=deep)
-
-        deep = kwargs.get("deep", False)
-        func = self._prepare_method(memory_usage_builder, **kwargs)
-        return self._full_axis_reduce(func, 0)
