@@ -41,9 +41,38 @@ class PandasQueryCompiler(BaseQueryCompiler):
 
     # Index, columns and dtypes objects
     _metadata = None
+    _dtype_cache = None
 
     def _get_dtype(self):
-        return self._metadata.
+        calculate_dtype = False
+        if self._dtype_cache is None:
+            calculate_dtype = True
+        else:
+            if len(self.columns) != len(self._dtype_cache):
+                if all(col in self._dtype_cache.index for col in self.columns):
+                    self._dtype_cache = pandas.Series(
+                        {col: self._dtype_cache[col] for col in self.columns}
+                    )
+                else:
+                    calculate_dtype = True
+            elif not self._dtype_cache.equals(self.columns):
+                self._dtype_cache.index = self.columns
+        if calculate_dtype:
+
+            def dtype_builder(df):
+                return df.apply(lambda row: find_common_type(row.values), axis=0)
+
+            map_func = self._prepare_method(
+                self._build_mapreduce_func(lambda df: df.dtypes)
+            )
+            reduce_func = self._build_mapreduce_func(dtype_builder)
+            # For now we will use a pandas Series for the dtypes.
+            self._dtype_cache = (
+                self._full_reduce(0, map_func, reduce_func).to_pandas().iloc[0]
+            )
+            # reset name to None because we use "__reduced__" internally
+            self._dtype_cache.name = None
+        return self._dtype_cache
 
     def _set_dtype(self, dtypes):
         self._dtype_cache = dtypes

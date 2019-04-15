@@ -1044,9 +1044,7 @@ class DataFrame(BasePandasDataset):
         """
         if index:
             temp = self._query_compiler.memory_usage(index=False, deep=deep)
-            result = self._reduce_dimension(
-                temp
-            )
+            result = self._reduce_dimension(temp)
 
             index_value = self.index.memory_usage(deep=deep)
             return Series(index_value, index=["Index"]).append(result)
