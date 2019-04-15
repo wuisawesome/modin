@@ -161,17 +161,23 @@ class PandasQueryCompiler(BaseQueryCompiler):
             Series containing the memory usage of each column.
         """
         if not self._metadata:
+
             def get_info_builder(df, **kwargs):
                 dtypes = df.dtypes
                 counts = df.count()
                 mem_usage_deep = df.memory_usage(index=False, deep=True)
                 mem_usage_shallow = df.memory_usage(index=False, deep=False)
-                return pandas.Series(zip(dtypes, counts, mem_usage_deep, mem_usage_shallow), index=dtypes.index)
+                return pandas.Series(
+                    zip(dtypes, counts, mem_usage_deep, mem_usage_shallow),
+                    index=dtypes.index,
+                )
 
             func = self._build_mapreduce_func(get_info_builder, **kwargs)
             result = self._full_axis_reduce(0, func)
 
-            self._metadata = PandasMetaData(*(result.applymap(lambda x: x[i]) for i in range(4)))
+            self._metadata = PandasMetaData(
+                *(result.applymap(lambda x: x[i]) for i in range(4))
+            )
 
         return self._metadata
 
