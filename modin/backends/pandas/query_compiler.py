@@ -30,7 +30,7 @@ class PandasQueryCompiler(BaseQueryCompiler):
         index: pandas.Index,
         columns: pandas.Index,
         # dtypes=None,
-        metadata=None
+        metadata=None,
     ):
         assert isinstance(block_partitions_object, BaseFrameManager)
         self.data = block_partitions_object
@@ -551,7 +551,17 @@ class PandasQueryCompiler(BaseQueryCompiler):
         new_columns = df.columns
         new_dtypes = df.dtypes
         new_data = block_partitions_cls.from_pandas(df)
-        return cls(new_data, new_index, new_columns, metadata=PandasMetaData(dtypes=new_dtypes, counts=df.count(), mem_usage_deep=df.memory_usage(deep=True, index=False), mem_usage_shallow=df.memory_usage(deep=False, index=False)))
+        return cls(
+            new_data,
+            new_index,
+            new_columns,
+            metadata=PandasMetaData(
+                dtypes=new_dtypes,
+                counts=df.count(),
+                mem_usage_deep=df.memory_usage(deep=True, index=False),
+                mem_usage_shallow=df.memory_usage(deep=False, index=False),
+            ),
+        )
 
     # END To/From Pandas
 
@@ -1311,7 +1321,11 @@ class PandasQueryCompiler(BaseQueryCompiler):
         #
         # func = self._build_mapreduce_func(memory_usage_builder, **kwargs)
         # result = self._full_axis_reduce(0, func)
-        return self.info.mem_usage_shallow if kwargs.get("deep", False) else self.info.mem_usage_deep
+        return (
+            self.info.mem_usage_shallow
+            if kwargs.get("deep", False)
+            else self.info.mem_usage_deep
+        )
 
     def nunique(self, **kwargs):
         """Returns the number of unique items over each column or row.
