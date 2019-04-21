@@ -178,7 +178,7 @@ class DataFrame(BasePandasDataset):
         Returns:
             The dtypes for this DataFrame.
         """
-        return self._query_compiler.dtypes
+        return Series(self._query_compiler.dtypes)
 
     def duplicated(self, subset=None, keep="first"):
         return super(DataFrame, self).duplicated(subset=subset, keep=keep)
@@ -730,7 +730,7 @@ class DataFrame(BasePandasDataset):
         """
 
         temp = self._query_compiler._get_info(index=False, deep=True)
-        print(temp)
+        # print(DataFrame(query_compiler=temp))
         # result = self._reduce_dimension(
         #     temp
         # )
@@ -765,6 +765,7 @@ class DataFrame(BasePandasDataset):
         #     )
         #     buf.write(result)
         # return None
+        return temp
 
     def insert(self, loc, column, value, allow_duplicates=False):
         """Insert column into DataFrame at specified location.
@@ -1043,11 +1044,16 @@ class DataFrame(BasePandasDataset):
             then the first value of the Series will be 'Index' with its memory usage.
         """
         if index:
-            temp = self._query_compiler.memory_usage(index=False, deep=deep)
-            result = self._reduce_dimension(temp)
+            result = self._query_compiler.memory_usage(index=False, deep=deep)
+            # result = self._reduce_dimension(temp)
 
             index_value = self.index.memory_usage(deep=deep)
-            return Series(index_value, index=["Index"]).append(result)
+            temp = Series(index_value, index=["Index"])
+            temp2 = temp.append(result)
+            temp3 = temp2.at
+            temp3["Index"]
+            return temp2
+            # return Series(index_value, index=["Index"]).append(result)
         return super(DataFrame, self).memory_usage(index=index, deep=deep)
 
     def merge(
