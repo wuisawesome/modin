@@ -7,6 +7,7 @@ from pandas.compat import string_types
 from pandas.core.common import apply_if_callable, is_bool_indexer
 from pandas.core.dtypes.common import (
     infer_dtype_from_object,
+    is_dict_like,
     is_list_like,
     is_numeric_dtype,
 )
@@ -61,7 +62,21 @@ class DataFrame(BasePandasDataset):
             if isinstance(data, Series) and data.name is None:
                 self.columns = [0]
         # Check type of data and use appropriate constructor
-        elif data is not None or query_compiler is None:
+        elif query_compiler is None:
+            if is_list_like(data) and not is_dict_like(data):
+                data = [
+                    obj._to_pandas() if isinstance(obj, Series) else obj for obj in data
+                ]
+            elif is_dict_like(data) and not isinstance(
+                data, (pandas.Series, Series, pandas.DataFrame, DataFrame)
+            ):
+                data = {
+                    k: v._to_pandas() if isinstance(v, Series) else v
+                    for k, v in data.items()
+                }
+            warnings.warn(
+                "Distributing {} object. This may take some time.".format(type(data))
+            )
             pandas_df = pandas.DataFrame(
                 data=data, index=index, columns=columns, dtype=dtype, copy=copy
             )
@@ -658,6 +673,11 @@ class DataFrame(BasePandasDataset):
         if isinstance(other, Series):
             other = other._to_pandas()
         return super(DataFrame, self).gt(other, axis=axis, level=level)
+
+    def head(self, n=5):
+        if n == 0:
+            return DataFrame(columns=self.columns)
+        return super(DataFrame, self).head(n)
 
     def hist(
         self,
@@ -1534,6 +1554,11 @@ class DataFrame(BasePandasDataset):
             **kwargs
         )
 
+    def tail(self, n=5):
+        if n == 0:
+            return DataFrame(columns=self.columns)
+        return super(DataFrame, self).tail(n)
+
     def to_feather(self, fname):  # pragma: no cover
         return self._default_to_pandas(pandas.DataFrame.to_feather, fname)
 
@@ -1806,7 +1831,7 @@ class DataFrame(BasePandasDataset):
             pandas.DataFrame.xs, key, axis=axis, level=level, drop_level=drop_level
         )
 
-    def __getitem__(self, key):
+    def _getitem(self, key):
         """Get the column specified by key for this DataFrame.
 
         Args:
@@ -1867,7 +1892,12 @@ class DataFrame(BasePandasDataset):
             # of indices, and RangeIndex will give us the exact indices of each boolean
             # requested.
             key = pandas.RangeIndex(len(self.index))[key]
-            return DataFrame(query_compiler=self._query_compiler.getitem_row_array(key))
+            if len(key):
+                return DataFrame(
+                    query_compiler=self._query_compiler.getitem_row_array(key)
+                )
+            else:
+                return DataFrame(columns=self.columns)
         else:
             if any(k not in self.columns for k in key):
                 raise KeyError(
@@ -1921,6 +1951,8 @@ class DataFrame(BasePandasDataset):
         if not isinstance(key, str):
 
             def setitem_without_string_columns(df):
+                # Arrow makes memory-mapped objects immutable, so copy will allow them
+                # to be mutable again.
                 df = df.copy(True)
                 df[key] = value
                 return df
@@ -1930,8 +1962,22 @@ class DataFrame(BasePandasDataset):
             )
         if is_list_like(value):
             if isinstance(value, (pandas.DataFrame, DataFrame)):
+                if value.shape[1] != 1 and key not in self.columns:
+                    raise ValueError(
+                        "Wrong number of items passed %i, placement implies 1"
+                        % value.shape[1]
+                    )
                 value = value[value.columns[0]].values
             elif isinstance(value, np.ndarray):
+                if (
+                    len(value.shape) > 1
+                    and value.shape[1] != 1
+                    and key not in self.columns
+                ):
+                    raise ValueError(
+                        "Wrong number of items passed %i, placement implies 1"
+                        % value.shape[1]
+                    )
                 assert (
                     len(value.shape) < 3
                 ), "Shape of new values must be compatible with manager shape"
@@ -2130,6 +2176,16 @@ class DataFrame(BasePandasDataset):
                 for dtype in self.dtypes
             ):
                 raise TypeError("Cannot compare Numeric and Non-Numeric Types")
+        # Pandas ignores `numeric_only` if `axis` is 1, but we do have to drop
+        # non-numeric columns if `axis` is 0.
+        if numeric_only and axis == 0:
+            return self.drop(
+                columns=[
+                    i for i in self.dtypes.index if not is_numeric_dtype(self.dtypes[i])
+                ]
+            )
+        else:
+            return self
 
     def _validate_dtypes_sum_prod_mean(self, axis, numeric_only, ignore_axis=False):
         """Raises TypeErrors for sum, prod, and mean where necessary"""
@@ -2162,6 +2218,16 @@ class DataFrame(BasePandasDataset):
                 for dtype in self.dtypes
             ):
                 raise TypeError("Cannot operate on Numeric and Non-Numeric Types")
+        # Pandas ignores `numeric_only` if `axis` is 1, but we do have to drop
+        # non-numeric columns if `axis` is 0.
+        if numeric_only and axis == 0:
+            return self.drop(
+                columns=[
+                    i for i in self.dtypes.index if not is_numeric_dtype(self.dtypes[i])
+                ]
+            )
+        else:
+            return self
 
     def _to_pandas(self):
         return self._query_compiler.to_pandas()

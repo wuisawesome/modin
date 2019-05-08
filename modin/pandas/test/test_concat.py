@@ -2,10 +2,13 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import numpy as np
 import pytest
 import pandas
+
 import modin.pandas as pd
 from modin.pandas.utils import from_pandas, to_pandas
+from .utils import df_equals
 
 pd.DEFAULT_NPARTITIONS = 4
 
@@ -171,4 +174,37 @@ def test_ignore_index_concat():
     assert modin_df_equals_pandas(
         pd.concat([df, df2], ignore_index=True),
         pandas.concat([df, df2], ignore_index=True),
+    )
+
+
+def test_concat_non_subscriptable_keys():
+    frame_data = np.random.randint(0, 100, size=(2 ** 10, 2 ** 6))
+    df = pd.DataFrame(frame_data).add_prefix("col")
+    pdf = pandas.DataFrame(frame_data).add_prefix("col")
+
+    modin_dict = {"c": df.copy(), "b": df.copy()}
+    pandas_dict = {"c": pdf.copy(), "b": pdf.copy()}
+    modin_result = pd.concat(modin_dict.values(), keys=modin_dict.keys())
+    pandas_result = pandas.concat(pandas_dict.values(), keys=pandas_dict.keys())
+    modin_df_equals_pandas(modin_result, pandas_result)
+
+
+def test_concat_series_only():
+    modin_series = pd.Series(list(range(1000)))
+    pandas_series = pandas.Series(list(range(1000)))
+
+    df_equals(
+        pd.concat([modin_series, modin_series]),
+        pandas.concat([pandas_series, pandas_series]),
+    )
+
+
+def test_concat_with_empty_frame():
+    modin_empty_df = pd.DataFrame()
+    pandas_empty_df = pandas.DataFrame()
+    modin_row = pd.Series({0: "a", 1: "b"})
+    pandas_row = pandas.Series({0: "a", 1: "b"})
+    df_equals(
+        pd.concat([modin_empty_df, modin_row]),
+        pandas.concat([pandas_empty_df, pandas_row]),
     )

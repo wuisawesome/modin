@@ -31,6 +31,7 @@ class PandasQueryCompiler(BaseQueryCompiler):
         columns: pandas.Index,
         # dtypes=None,
         metadata=None,
+        is_transposed=False
     ):
         assert isinstance(block_partitions_object, BaseFrameManager)
         self.data = block_partitions_object
@@ -38,6 +39,7 @@ class PandasQueryCompiler(BaseQueryCompiler):
         self.columns = columns
         if metadata is not None:
             self._metadata = metadata
+        self._is_transposed = int(is_transposed)
         # if dtypes is not None:
         #     self._dtype_cache = dtypes
 
@@ -76,10 +78,7 @@ class PandasQueryCompiler(BaseQueryCompiler):
         #     self._dtype_cache.name = None
         return self.info.dtypes
 
-    def _set_dtype(self, dtypes):
-        self._dtype_cache = dtypes
-
-    dtypes = property(_get_dtype, _set_dtype)
+    dtypes = property(_get_dtype)
 
     def compute_index(self, axis, data_object, compute_diff=True):
         """Computes the index after a number of rows have been removed.
@@ -264,28 +263,36 @@ class PandasQueryCompiler(BaseQueryCompiler):
     def add_prefix(self, prefix, axis=1):
         if axis == 1:
             new_columns = self.columns.map(lambda x: str(prefix) + str(x))
-            new_dtype_cache = self._dtype_cache.copy()
-            if new_dtype_cache is not None:
+            if self._dtype_cache is not None:
+                new_dtype_cache = self._dtype_cache.copy()
                 new_dtype_cache.index = new_columns
+            else:
+                new_dtype_cache = None
             new_index = self.index
         else:
             new_index = self.index.map(lambda x: str(prefix) + str(x))
             new_columns = self.columns
-            new_dtype_cache = self._dtype_cache.copy()
-        return self.__constructor__(self.data, new_index, new_columns, new_dtype_cache)
+            new_dtype_cache = self._dtype_cache
+        return self.__constructor__(
+            self.data, new_index, new_columns, new_dtype_cache, self._is_transposed
+        )
 
     def add_suffix(self, suffix, axis=1):
         if axis == 1:
             new_columns = self.columns.map(lambda x: str(x) + str(suffix))
-            new_dtype_cache = self._dtype_cache.copy()
-            if new_dtype_cache is not None:
+            if self._dtype_cache is not None:
+                new_dtype_cache = self._dtype_cache.copy()
                 new_dtype_cache.index = new_columns
+            else:
+                new_dtype_cache = None
             new_index = self.index
         else:
             new_index = self.index.map(lambda x: str(x) + str(suffix))
             new_columns = self.columns
-            new_dtype_cache = self._dtype_cache.copy()
-        return self.__constructor__(self.data, new_index, new_columns, new_dtype_cache)
+            new_dtype_cache = self._dtype_cache
+        return self.__constructor__(
+            self.data, new_index, new_columns, new_dtype_cache, self._is_transposed
+        )
 
     # END Metadata modification methods
 
@@ -294,13 +301,13 @@ class PandasQueryCompiler(BaseQueryCompiler):
     # copies if we end up modifying something here. We copy all of the metadata
     # to prevent that.
     def copy(self):
-        copied = self.__constructor__(
-            self.data.copy(), self.index.copy(), self.columns.copy(), self._dtype_cache
+        return self.__constructor__(
+            self.data.copy(),
+            self.index.copy(),
+            self.columns.copy(),
+            self._dtype_cache,
+            self._is_transposed,
         )
-        # Copy metadata
-        if self._is_transposed:
-            copied._is_transposed = True
-        return copied
 
     # END Copy
 
@@ -780,10 +787,12 @@ class PandasQueryCompiler(BaseQueryCompiler):
                     df.columns = new_index
                 return func(df)
 
-            new_data = self._map_across_full_axis(axis, list_like_op)
+            new_data = self._map_across_full_axis(
+                axis, self._prepare_method(list_like_op)
+            )
             return self.__constructor__(new_data, self.index, self.columns)
         else:
-            return self._map_partitions(func)
+            return self._map_partitions(self._prepare_method(func))
 
     # END Single Manager scalar operations
 
@@ -798,6 +807,12 @@ class PandasQueryCompiler(BaseQueryCompiler):
         Returns:
             A new QueryCompiler with updated data and new index.
         """
+        if self._is_transposed:
+            return (
+                self.transpose()
+                .reindex(axis=axis ^ 1, labels=labels, **kwargs)
+                .transpose()
+            )
 
         # To reindex, we need a function that will be shipped to each of the
         # partitions.
@@ -851,7 +866,13 @@ class PandasQueryCompiler(BaseQueryCompiler):
                 result = self.data.from_pandas(index_data).concat(1, self.data)
                 return self.__constructor__(result, new_index, new_columns)
             else:
-                new_column_name = "index" if "index" not in self.columns else "level_0"
+                new_column_name = (
+                    self.index.name
+                    if self.index.name is not None
+                    else "index"
+                    if "index" not in self.columns
+                    else "level_0"
+                )
                 new_columns = self.columns.insert(0, new_column_name)
                 result = self.insert(0, new_column_name, self.index)
                 return self.__constructor__(result.data, new_index, new_columns)
@@ -873,9 +894,6 @@ class PandasQueryCompiler(BaseQueryCompiler):
     # Our invariants assume that the blocks are transposed, but not the
     # data inside. Sometimes we have to reverse this transposition of blocks
     # for simplicity of implementation.
-    #
-    # _is_transposed, 0 for False or non-transposed, 1 for True or transposed.
-    _is_transposed = 0
 
     def transpose(self, *args, **kwargs):
         """Transposes this DataManager.
@@ -885,9 +903,9 @@ class PandasQueryCompiler(BaseQueryCompiler):
         """
         new_data = self.data.transpose(*args, **kwargs)
         # Switch the index and columns and transpose the
-        new_manager = self.__constructor__(new_data, self.columns, self.index)
-        # It is possible that this is already transposed
-        new_manager._is_transposed = self._is_transposed ^ 1
+        new_manager = self.__constructor__(
+            new_data, self.columns, self.index, is_transposed=self._is_transposed ^ 1
+        )
         return new_manager
 
     # END Transpose
@@ -1157,14 +1175,20 @@ class PandasQueryCompiler(BaseQueryCompiler):
         new_dtypes = self.dtypes.copy()
         for i, column in enumerate(columns):
             dtype = col_dtypes[column]
-            if dtype != self.dtypes[column]:
+            if (
+                not isinstance(dtype, type(self.dtypes[column]))
+                or dtype != self.dtypes[column]
+            ):
                 # Only add dtype only if different
                 if dtype in dtype_indices.keys():
                     dtype_indices[dtype].append(numeric_indices[i])
                 else:
                     dtype_indices[dtype] = [numeric_indices[i]]
                 # Update the new dtype series to the proper pandas dtype
-                new_dtype = np.dtype(dtype)
+                try:
+                    new_dtype = np.dtype(dtype)
+                except TypeError:
+                    new_dtype = dtype
                 if dtype != np.int32 and new_dtype == np.int32:
                     new_dtype = np.dtype("int64")
                 elif dtype != np.float32 and new_dtype == np.float32:
@@ -1645,8 +1669,11 @@ class PandasQueryCompiler(BaseQueryCompiler):
 
         new_index = pandas.RangeIndex(len(self.index)) if not axis else self.index
         new_columns = self.columns if not axis else pandas.RangeIndex(len(self.columns))
+        new_dtypes = self._dtype_cache
+        if new_dtypes is not None:
+            new_dtypes.index = new_columns
         return self.__constructor__(
-            new_data, new_index, new_columns, self._dtype_cache
+            new_data, new_index, new_columns, new_dtypes
         ).dropna(axis=axis, how="all")
 
     def fillna(self, **kwargs):
@@ -1763,7 +1790,7 @@ class PandasQueryCompiler(BaseQueryCompiler):
             new_index = pandas.Series(self.index).sort_values(**kwargs)
             new_columns = self.columns
         return self.__constructor__(
-            new_data, new_index, new_columns, self.dtypes.copy()
+            new_data, new_index, new_columns, self.dtypes.copy(), self._is_transposed
         )
 
     # END Map across rows/columns
@@ -1875,8 +1902,8 @@ class PandasQueryCompiler(BaseQueryCompiler):
                 self.index[:n],
                 self.columns,
                 self._dtype_cache,
+                self._is_transposed,
             )
-            result._is_transposed = True
         else:
             result = self.__constructor__(
                 self.data.take(0, n), self.index[:n], self.columns, self._dtype_cache
@@ -1898,27 +1925,15 @@ class PandasQueryCompiler(BaseQueryCompiler):
         if self._is_transposed:
             result = self.__constructor__(
                 self.data.transpose().take(1, -n).transpose(),
-                self.index[:-n],
+                self.index[-n:],
                 self.columns,
                 self._dtype_cache,
+                self._is_transposed,
             )
-            result._is_transposed = True
         else:
-            if n == 0:
-                result = self.__constructor__(
-                    self.data.take(0, 0),
-                    self.index[:0],
-                    self.columns,
-                    self._dtype_cache,
-                )
-            else:
-                result = self.__constructor__(
-                    self.data.take(0, -n),
-                    self.index[-n:],
-                    self.columns,
-                    self._dtype_cache,
-                )
-
+            result = self.__constructor__(
+                self.data.take(0, -n), self.index[-n:], self.columns, self._dtype_cache
+            )
         return result
 
     def front(self, n):
@@ -1940,8 +1955,8 @@ class PandasQueryCompiler(BaseQueryCompiler):
                 self.index,
                 self.columns[:n],
                 new_dtypes,
+                self._is_transposed,
             )
-            result._is_transposed = True
         else:
             result = self.__constructor__(
                 self.data.take(1, n), self.index, self.columns[:n], new_dtypes
@@ -1967,8 +1982,8 @@ class PandasQueryCompiler(BaseQueryCompiler):
                 self.index,
                 self.columns[-n:],
                 new_dtypes,
+                self._is_transposed,
             )
-            result._is_transposed = True
         else:
             result = self.__constructor__(
                 self.data.take(1, -n), self.index, self.columns[-n:], new_dtypes
@@ -1995,8 +2010,9 @@ class PandasQueryCompiler(BaseQueryCompiler):
         def getitem(df, internal_indices=[]):
             return df.iloc[:, internal_indices]
 
+        prepared_func = self._prepare_method(getitem)
         result = self.data.apply_func_to_select_indices(
-            0, getitem, numeric_indices, keep_remaining=False
+            0, prepared_func, numeric_indices, keep_remaining=False
         )
         # We can't just set the columns to key here because there may be
         # multiple instances of a key.
@@ -2019,8 +2035,9 @@ class PandasQueryCompiler(BaseQueryCompiler):
         def getitem(df, internal_indices=[]):
             return df.iloc[internal_indices]
 
+        prepared_func = self._prepare_method(getitem)
         result = self.data.apply_func_to_select_indices(
-            1, getitem, key, keep_remaining=False
+            1, prepared_func, key, keep_remaining=False
         )
         # We can't just set the index to key here because there may be multiple
         # instances of a key.
@@ -2039,17 +2056,24 @@ class PandasQueryCompiler(BaseQueryCompiler):
         """
 
         def setitem(df, internal_indices=[]):
-            df = df.copy()
-            if len(internal_indices) == 1:
-                if axis == 0:
-                    df[df.columns[internal_indices[0]]] = value
+            def _setitem():
+                if len(internal_indices) == 1:
+                    if axis == 0:
+                        df[df.columns[internal_indices[0]]] = value
+                    else:
+                        df.iloc[internal_indices[0]] = value
                 else:
-                    df.iloc[internal_indices[0]] = value
-            else:
-                if axis == 0:
-                    df[df.columns[internal_indices]] = value
-                else:
-                    df.iloc[internal_indices] = value
+                    if axis == 0:
+                        df[df.columns[internal_indices]] = value
+                    else:
+                        df.iloc[internal_indices] = value
+
+            try:
+                _setitem()
+            except ValueError:
+                # TODO: This is a workaround for a pyarrow serialization issue
+                df = df.copy()
+                _setitem()
             return df
 
         if axis == 0:
@@ -2081,6 +2105,8 @@ class PandasQueryCompiler(BaseQueryCompiler):
         Returns:
             A new QueryCompiler.
         """
+        if self._is_transposed:
+            return self.transpose().drop(index=columns, columns=index).transpose()
         if index is None:
             new_data = self.data
             new_index = self.index
@@ -2464,9 +2490,9 @@ class PandasQueryCompiler(BaseQueryCompiler):
             np.arange(len(self.columns)), index=self.columns
         )
         if index is not None:
-            index_map_series = index_map_series.reindex(index)
+            index_map_series = index_map_series.iloc[index]
         if columns is not None:
-            column_map_series = column_map_series.reindex(columns)
+            column_map_series = column_map_series.iloc[columns]
         return PandasQueryCompilerView(
             self.data,
             index_map_series.index,
@@ -2546,12 +2572,12 @@ class PandasQueryCompilerView(PandasQueryCompiler):
 
     def __init__(
         self,
-        block_partitions_object: BaseFrameManager,
-        index: pandas.Index,
-        columns: pandas.Index,
+        block_partitions_object,
+        index,
+        columns,
         dtypes=None,
-        index_map_series: pandas.Series = None,
-        columns_map_series: pandas.Series = None,
+        index_map_series=None,
+        columns_map_series=None,
     ):
         """
         Args:

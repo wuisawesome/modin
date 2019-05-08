@@ -4,8 +4,11 @@ from __future__ import print_function
 
 import numpy as np
 import pandas
+from pandas.compat import string_types
+from pandas.core.common import is_bool_indexer
 from pandas.core.dtypes.common import is_dict_like, is_list_like, is_scalar
 import sys
+import warnings
 
 from .base import BasePandasDataset
 from .iterator import PartitionIterator
@@ -31,6 +34,9 @@ class Series(BasePandasDataset):
             series_oids ([ObjectID]): The list of remote Series objects.
         """
         if query_compiler is None:
+            warnings.warn(
+                "Distributing {} object. This may take some time.".format(type(data))
+            )
             if name is None:
                 name = "__reduced__"
             query_compiler = from_pandas(
@@ -45,7 +51,9 @@ class Series(BasePandasDataset):
                     )
                 )
             )._query_compiler
-        if len(query_compiler.columns) != 1:
+        if len(query_compiler.columns) != 1 or (
+            len(query_compiler.index) == 1 and query_compiler.index[0] == "__reduced__"
+        ):
             query_compiler = query_compiler.transpose()
         self._query_compiler = query_compiler
 
@@ -67,10 +75,10 @@ class Series(BasePandasDataset):
         return query_compiler.to_pandas().squeeze()
 
     def _validate_dtypes_sum_prod_mean(self, axis, numeric_only, ignore_axis=False):
-        pass
+        return self
 
     def _validate_dtypes_min_max(self, axis, numeric_only):
-        pass
+        return self
 
     def _validate_dtypes(self, numeric_only=False):
         pass
@@ -147,15 +155,26 @@ class Series(BasePandasDataset):
     def __floordiv__(self, right):
         return self.floordiv(right)
 
-    def __getitem__(self, key):
-        if (
-            key in self.keys()
-            or is_list_like(key)
-            and all(k in self.keys() for k in key)
-        ):
-            return self.loc[key]
+    def _getitem(self, key):
+        if isinstance(key, Series) and key.dtype == np.bool:
+            # This ends up being significantly faster than looping through and getting
+            # each item individually.
+            key = key._to_pandas()
+        if is_bool_indexer(key):
+            return self.loc[self.index[key]]
         else:
-            return self.iloc[key]
+            # The check for whether or not `key` is in `keys()` will throw a TypeError
+            # if the object is not hashable. When that happens, we just use the `iloc`.
+            try:
+                if (
+                    is_list_like(key)
+                    and all(k in self.keys() for k in key)
+                    or key in self.keys()
+                ):
+                    return self.loc[key]
+            except TypeError:
+                pass
+        return self.iloc[key]
 
     def __int__(self):
         return int(self.squeeze())
@@ -178,8 +197,8 @@ class Series(BasePandasDataset):
 
     def __repr__(self):
         # In the future, we can have this be configurable, just like Pandas.
-        num_rows = 60
-        num_cols = 30
+        num_rows = pandas.get_option("max_rows") or 60
+        num_cols = pandas.get_option("max_columns") or 20
         temp_df = self._build_repr_df(num_rows, num_cols)
         if isinstance(temp_df, pandas.DataFrame):
             temp_df = temp_df.iloc[:, 0]
@@ -339,12 +358,7 @@ class Series(BasePandasDataset):
             apply_func = "agg"
         else:
             apply_func = "apply"
-            # Add this because it only applies for `apply` specifically.
-            kwds["convert_dtype"] = convert_dtype
-        query_compiler = super(Series, self).apply(func, *args, **kwds)
-        # Sometimes we can return a scalar here
-        if not isinstance(query_compiler, type(self._query_compiler)):
-            return query_compiler
+
         # This is the simplest way to determine the return type, but there are checks
         # in pandas that verify that some results are created. This is a challenge for
         # empty DataFrames, but fortunately they only happen when the `func` type is
@@ -356,6 +370,28 @@ class Series(BasePandasDataset):
                 func, *args, **kwds
             )
         ).__name__
+        if (
+            isinstance(func, string_types)
+            or is_list_like(func)
+            or return_type not in ["DataFrame", "Series"]
+        ):
+            query_compiler = super(Series, self).apply(func, *args, **kwds)
+            # Sometimes we can return a scalar here
+            if not isinstance(query_compiler, type(self._query_compiler)):
+                return query_compiler
+        else:
+            # handle ufuncs and lambdas
+            if kwds or args and not isinstance(func, np.ufunc):
+
+                def f(x):
+                    return func(x, *args, **kwds)
+
+            else:
+                f = func
+            with np.errstate(all="ignore"):
+                if isinstance(f, np.ufunc):
+                    return f(self)
+                query_compiler = self.map(f)._query_compiler
         if return_type not in ["DataFrame", "Series"]:
             return query_compiler.to_pandas().squeeze()
         else:
@@ -550,6 +586,11 @@ class Series(BasePandasDataset):
     def gt(self, other, level=None, fill_value=None, axis=0):
         new_self, new_other = self._prepare_inter_op(other)
         return super(Series, new_self).gt(new_other, level=level, axis=axis)
+
+    def head(self, n=5):
+        if n == 0:
+            return Series(dtype=self.dtype)
+        return super(Series, self).head(n)
 
     def hist(
         self,
@@ -954,6 +995,11 @@ class Series(BasePandasDataset):
 
     def swaplevel(self, i=-2, j=-1, copy=True):
         return self._default_to_pandas("swaplevel", i=i, j=j, copy=copy)
+
+    def tail(self, n=5):
+        if n == 0:
+            return Series(dtype=self.dtype)
+        return super(Series, self).tail(n)
 
     def to_frame(self, name=None):
         from .dataframe import DataFrame

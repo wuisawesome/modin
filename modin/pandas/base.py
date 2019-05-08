@@ -37,6 +37,8 @@ class BasePandasDataset(object):
         num_rows_for_head = num_rows // 2 + 1
         num_cols_for_front = num_cols // 2 + 1
 
+        if self.empty:
+            return self._query_compiler.to_pandas()
         if len(self.index) <= num_rows:
             head = self._query_compiler
             tail = None
@@ -89,6 +91,9 @@ class BasePandasDataset(object):
         comparison_dtypes_only=False,
     ):
         """Helper method to check validity of other in inter-df operations"""
+        # We skip dtype checking if the other is a scalar.
+        if is_scalar(other):
+            return other
         axis = self._get_axis_number(axis) if axis is not None else 1
         result = other
         if isinstance(other, BasePandasDataset):
@@ -121,7 +126,7 @@ class BasePandasDataset(object):
                     else len(self._query_compiler.columns)
                 )
             ]
-        # Do dtype checking
+        # Do dtype checking.
         if numeric_only:
             if not all(
                 is_numeric_dtype(self_dtype) and is_numeric_dtype(other_dtype)
@@ -297,11 +302,9 @@ class BasePandasDataset(object):
                 result = self._aggregate(func, _axis=axis, *args, **kwargs)
             except TypeError:
                 pass
-
         if result is None:
             kwargs.pop("is_transform", None)
             return self.apply(func, axis=axis, args=args, **kwargs)
-
         return result
 
     def _aggregate(self, arg, *args, **kwargs):
@@ -1506,10 +1509,9 @@ class BasePandasDataset(object):
             The max of the DataFrame.
         """
         axis = self._get_axis_number(axis) if axis is not None else 0
-        self._validate_dtypes_min_max(axis, numeric_only)
-
-        return self._reduce_dimension(
-            self._query_compiler.max(
+        data = self._validate_dtypes_min_max(axis, numeric_only)
+        return data._reduce_dimension(
+            data._query_compiler.max(
                 axis=axis,
                 skipna=skipna,
                 level=level,
@@ -1529,9 +1531,11 @@ class BasePandasDataset(object):
             The mean of the DataFrame. (Pandas series)
         """
         axis = self._get_axis_number(axis) if axis is not None else 0
-        self._validate_dtypes_sum_prod_mean(axis, numeric_only, ignore_axis=False)
-        return self._reduce_dimension(
-            self._query_compiler.mean(
+        data = self._validate_dtypes_sum_prod_mean(
+            axis, numeric_only, ignore_axis=False
+        )
+        return data._reduce_dimension(
+            data._query_compiler.mean(
                 axis=axis,
                 skipna=skipna,
                 level=level,
@@ -1553,7 +1557,6 @@ class BasePandasDataset(object):
         axis = self._get_axis_number(axis) if axis is not None else 0
         if numeric_only is not None and not numeric_only:
             self._validate_dtypes(numeric_only=True)
-
         return self._reduce_dimension(
             self._query_compiler.median(
                 axis=axis,
@@ -1594,10 +1597,9 @@ class BasePandasDataset(object):
             The min of the DataFrame.
         """
         axis = self._get_axis_number(axis) if axis is not None else 0
-        self._validate_dtypes_min_max(axis, numeric_only)
-
-        return self._reduce_dimension(
-            self._query_compiler.min(
+        data = self._validate_dtypes_min_max(axis, numeric_only)
+        return data._reduce_dimension(
+            data._query_compiler.min(
                 axis=axis,
                 skipna=skipna,
                 level=level,
@@ -1772,9 +1774,9 @@ class BasePandasDataset(object):
             prod : Series or DataFrame (if level specified)
         """
         axis = self._get_axis_number(axis) if axis is not None else 0
-        self._validate_dtypes_sum_prod_mean(axis, numeric_only, ignore_axis=True)
-        return self._reduce_dimension(
-            self._query_compiler.prod(
+        data = self._validate_dtypes_sum_prod_mean(axis, numeric_only, ignore_axis=True)
+        return data._reduce_dimension(
+            data._query_compiler.prod(
                 axis=axis,
                 skipna=skipna,
                 level=level,
@@ -2487,7 +2489,6 @@ class BasePandasDataset(object):
         axis = self._get_axis_number(axis) if axis is not None else 0
         if numeric_only is not None and not numeric_only:
             self._validate_dtypes(numeric_only=True)
-
         return self._reduce_dimension(
             self._query_compiler.skew(
                 axis=axis,
@@ -2586,7 +2587,7 @@ class BasePandasDataset(object):
         # Currently, sort_values will just reindex based on the sorted values.
         # TODO create a more efficient way to sort
         if axis == 0:
-            broadcast_value_dict = {col: self[col] for col in by}
+            broadcast_value_dict = {col: self[col]._to_pandas() for col in by}
             broadcast_values = pandas.DataFrame(broadcast_value_dict, index=self.index)
             new_index = broadcast_values.sort_values(
                 by=by,
@@ -2630,7 +2631,6 @@ class BasePandasDataset(object):
         axis = self._get_axis_number(axis) if axis is not None else 0
         if numeric_only is not None and not numeric_only:
             self._validate_dtypes(numeric_only=True)
-
         return self._reduce_dimension(
             self._query_compiler.std(
                 axis=axis,
@@ -2679,9 +2679,11 @@ class BasePandasDataset(object):
             The sum of the DataFrame.
         """
         axis = self._get_axis_number(axis) if axis is not None else 0
-        self._validate_dtypes_sum_prod_mean(axis, numeric_only, ignore_axis=False)
-        return self._reduce_dimension(
-            self._query_compiler.sum(
+        data = self._validate_dtypes_sum_prod_mean(
+            axis, numeric_only, ignore_axis=False
+        )
+        return data._reduce_dimension(
+            data._query_compiler.sum(
                 axis=axis,
                 skipna=skipna,
                 level=level,
@@ -3080,7 +3082,6 @@ class BasePandasDataset(object):
         axis = self._get_axis_number(axis) if axis is not None else 0
         if numeric_only is not None and not numeric_only:
             self._validate_dtypes(numeric_only=True)
-
         return self._reduce_dimension(
             self._query_compiler.var(
                 axis=axis,
@@ -3146,6 +3147,12 @@ class BasePandasDataset(object):
 
     def __ge__(self, other):
         return self.ge(other)
+
+    def __getitem__(self, key):
+        if len(self) == 0:
+            return self._default_to_pandas("__getitem__", key)
+        else:
+            return self._getitem(key)
 
     def __getstate__(self):
         return self._default_to_pandas("__getstate__")
