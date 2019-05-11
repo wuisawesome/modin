@@ -31,7 +31,7 @@ class PandasQueryCompiler(BaseQueryCompiler):
         columns: pandas.Index,
         # dtypes=None,
         metadata=None,
-        is_transposed=False
+        is_transposed=False,
     ):
         assert isinstance(block_partitions_object, BaseFrameManager)
         self.data = block_partitions_object
