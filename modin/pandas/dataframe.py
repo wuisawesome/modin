@@ -1069,6 +1069,9 @@ class DataFrame(BasePandasDataset):
 
             index_value = self.index.memory_usage(deep=deep)
             temp = Series(index_value, index=["Index"])
+            result = Series(result)
+            print(type(result))
+            print(type(temp))
             temp2 = temp.append(result)
             temp3 = temp2.at
             temp3["Index"]

@@ -29,7 +29,6 @@ class PandasQueryCompiler(BaseQueryCompiler):
         block_partitions_object: BaseFrameManager,
         index: pandas.Index,
         columns: pandas.Index,
-        # dtypes=None,
         metadata=None,
         is_transposed=False,
     ):
@@ -40,42 +39,11 @@ class PandasQueryCompiler(BaseQueryCompiler):
         if metadata is not None:
             self._metadata = metadata
         self._is_transposed = int(is_transposed)
-        # if dtypes is not None:
-        #     self._dtype_cache = dtypes
 
     # Index, columns and dtypes objects
     _metadata = None
-    # _dtype_cache = None
 
     def _get_dtype(self):
-        # calculate_dtype = False
-        # if self._dtype_cache is None:
-        #     calculate_dtype = True
-        # else:
-        #     if len(self.columns) != len(self._dtype_cache):
-        #         if all(col in self._dtype_cache.index for col in self.columns):
-        #             self._dtype_cache = pandas.Series(
-        #                 {col: self._dtype_cache[col] for col in self.columns}
-        #             )
-        #         else:
-        #             calculate_dtype = True
-        #     elif not self._dtype_cache.equals(self.columns):
-        #         self._dtype_cache.index = self.columns
-        # if calculate_dtype:
-        #
-        #     def dtype_builder(df):
-        #         return df.apply(lambda row: find_common_type(row.values), axis=0)
-        #
-        #     map_func = self._prepare_method(
-        #         self._build_mapreduce_func(lambda df: df.dtypes)
-        #     )
-        #     reduce_func = self._build_mapreduce_func(dtype_builder)
-        #     # For now we will use a pandas Series for the dtypes.
-        #     self._dtype_cache = (
-        #         self._full_reduce(0, map_func, reduce_func).to_pandas().iloc[0]
-        #     )
-        #     # reset name to None because we use "__reduced__" internally
-        #     self._dtype_cache.name = None
         return self.info.dtypes
 
     dtypes = property(_get_dtype)
@@ -1338,18 +1306,8 @@ class PandasQueryCompiler(BaseQueryCompiler):
         Returns:
             A new QueryCompiler object containing the memory usage of each column.
         """
+        return self.info.mem_usage_shallow if kwargs.get("deep", False) else self.info.mem_usage_deep
 
-        # def memory_usage_builder(df, **kwargs):
-        #     result = df.memory_usage(**kwargs)
-        #     return result
-        #
-        # func = self._build_mapreduce_func(memory_usage_builder, **kwargs)
-        # result = self._full_axis_reduce(0, func)
-        return (
-            self.info.mem_usage_shallow
-            if kwargs.get("deep", False)
-            else self.info.mem_usage_deep
-        )
 
     def nunique(self, **kwargs):
         """Returns the number of unique items over each column or row.
