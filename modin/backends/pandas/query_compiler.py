@@ -35,8 +35,10 @@ class PandasQueryCompiler(BaseQueryCompiler):
             self._dtype_cache = dtypes
         self._is_transposed = int(is_transposed)
 
-    # Index, columns and dtypes objects
-    _dtype_cache = None
+    _info_cache = None
+
+    def _get_info(self):
+        
 
     def _get_dtype(self):
         if self._dtype_cache is None:
