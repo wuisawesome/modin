@@ -15,6 +15,7 @@ from pandas.core.dtypes.common import (
 from pandas.core.index import ensure_index
 from pandas.core.base import DataError
 
+from backends.pandas.pandas_metadata import PandasMetaData
 from modin.engines.base.frame.partition_manager import BaseFrameManager
 from modin.error_message import ErrorMessage
 from modin.backends.base.query_compiler import BaseQueryCompiler
@@ -25,7 +26,7 @@ class PandasQueryCompiler(BaseQueryCompiler):
         with a Pandas backend. This logic is specific to Pandas."""
 
     def __init__(
-        self, block_partitions_object, index, columns, dtypes=None, is_transposed=False
+        self, *temp, block_partitions_object, index, columns, dtypes=None, is_transposed=False
     ):
         assert isinstance(block_partitions_object, BaseFrameManager)
         self.data = block_partitions_object
@@ -35,28 +36,30 @@ class PandasQueryCompiler(BaseQueryCompiler):
             self._dtype_cache = dtypes
         self._is_transposed = int(is_transposed)
 
-    # Index, columns and dtypes objects
-    _dtype_cache = None
+    _metadata_cache = None
 
-    def _get_dtype(self):
-        if self._dtype_cache is None:
+    def _get_metadata(self):
+        if not self._metadata_cache:
+            def get_info_builder(df):
+                dtypes = df.dtypes
+                counts = df.count()
+                mem_usage_deep = df.memory_usage(index=False, deep=True)
+                mem_usage_shallow = df.memory_usage(index=False, deep=False)
+                return pandas.Series(
+                    zip(dtypes, counts, mem_usage_deep, mem_usage_shallow),
+                    index=dtypes.index,
+                )
 
-            def dtype_builder(df):
-                return df.apply(lambda row: find_common_type(row.values), axis=0)
+            func = self._build_mapreduce_func(get_info_builder)
+            result = self._full_axis_reduce(0, func)
 
-            map_func = self._prepare_method(
-                self._build_mapreduce_func(lambda df: df.dtypes)
+            self._metadata = PandasMetaData(
+                # TODO: Don't materialize the pandas Series for these properties
+                *(result.applymap(lambda x: x[i]).to_pandas().iloc[0] for i in range(4))
             )
-            reduce_func = self._build_mapreduce_func(dtype_builder)
-            # For now we will use a pandas Series for the dtypes.
-            self._dtype_cache = (
-                self._full_reduce(0, map_func, reduce_func).to_pandas().iloc[0]
-            )
-            # reset name to None because we use "__reduced__" internally
-            self._dtype_cache.name = None
-        return self._dtype_cache
+        return self._metadata_cache
 
-    dtypes = property(_get_dtype)
+    metadata = property(_get_metadata)
 
     def compute_index(self, axis, data_object, compute_diff=True):
         """Computes the index after a number of rows have been removed.
