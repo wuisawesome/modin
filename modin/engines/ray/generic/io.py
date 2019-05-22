@@ -187,7 +187,7 @@ class RayIO(BaseIO):
         index_len = ray.get(blk_partitions[-1][0])
         index = pandas.RangeIndex(index_len)
         new_query_compiler = cls.query_compiler_cls(
-            cls.frame_mgr_cls(remote_partitions), index, columns
+            block_partitions_object=cls.frame_mgr_cls(remote_partitions), index=index, columns=columns
         )
 
         return new_query_compiler
@@ -347,7 +347,7 @@ class RayIO(BaseIO):
                     column_names = column_names.drop(group).insert(0, new_col_name)
 
         new_query_compiler = cls.query_compiler_cls(
-            cls.frame_mgr_cls(np.array(partition_ids)), new_index, column_names
+            block_partitions_object=cls.frame_mgr_cls(np.array(partition_ids)), index=new_index, columns=column_names
         )
 
         if skipfooter:
@@ -622,7 +622,9 @@ class RayIO(BaseIO):
         index_len = ray.get(blk_partitions[-1][0])
         index = pandas.RangeIndex(index_len)
         new_query_compiler = cls.query_compiler_cls(
-            cls.frame_mgr_cls(remote_partitions), index, columns
+            block_partitions_object=cls.frame_mgr_cls(remote_partitions),
+            index=index,
+            columns=columns
         )
         return new_query_compiler
 
@@ -683,7 +685,9 @@ class RayIO(BaseIO):
         index_len = ray.get(blk_partitions[-1][0])
         index = pandas.RangeIndex(index_len)
         new_query_compiler = cls.query_compiler_cls(
-            cls.frame_mgr_cls(remote_partitions), index, columns
+            block_partitions_object=cls.frame_mgr_cls(remote_partitions),
+            index=index,
+            columns=columns
         )
         return new_query_compiler
 
@@ -760,6 +764,8 @@ class RayIO(BaseIO):
             new_index = pandas.Index(index_lst).set_names(index_col)
 
         new_query_compiler = cls.query_compiler_cls(
-            cls.frame_mgr_cls(np.array(partition_ids)), new_index, cols_names
+            block_partitions_object=cls.frame_mgr_cls(np.array(partition_ids)),
+            index=new_index,
+            columns=cols_names
         )
         return new_query_compiler

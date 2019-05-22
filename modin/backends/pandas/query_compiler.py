@@ -15,7 +15,8 @@ from pandas.core.dtypes.common import (
 from pandas.core.index import ensure_index
 from pandas.core.base import DataError
 
-from backends.pandas.pandas_metadata import PandasMetaData
+from modin.backends.pandas import pandas_metadata
+from modin.backends.pandas.pandas_metadata import PandasMetaData
 from modin.engines.base.frame.partition_manager import BaseFrameManager
 from modin.error_message import ErrorMessage
 from modin.backends.base.query_compiler import BaseQueryCompiler
@@ -31,15 +32,15 @@ class PandasQueryCompiler(BaseQueryCompiler):
         block_partitions_object,
         index,
         columns,
-        dtypes=None,
+        metadata=None,
         is_transposed=False
     ):
         assert isinstance(block_partitions_object, BaseFrameManager)
         self.data = block_partitions_object
         self.index = index
         self.columns = columns
-        if dtypes is not None:
-            self._dtype_cache = dtypes
+        if metadata is not None:
+            self._metadata_cache = metadata
         self._is_transposed = int(is_transposed)
 
     _metadata_cache = None
@@ -60,13 +61,18 @@ class PandasQueryCompiler(BaseQueryCompiler):
             func = self._build_mapreduce_func(get_info_builder)
             result = self._full_axis_reduce(0, func)
 
-            self._metadata = PandasMetaData(
+            self._metadata_cache = PandasMetaData(
                 # TODO: Don't materialize the pandas Series for these properties
                 *(result.applymap(lambda x: x[i]).to_pandas().iloc[0] for i in range(4))
             )
         return self._metadata_cache
 
     metadata = property(_get_metadata)
+
+    def _get_dtype(self):
+        return self.metadata.dtypes
+
+    dtypes = property(_get_dtype)
 
     def compute_index(self, axis, data_object, compute_diff=True):
         """Computes the index after a number of rows have been removed.
@@ -514,9 +520,9 @@ class PandasQueryCompiler(BaseQueryCompiler):
         """
         new_index = df.index
         new_columns = df.columns
-        new_dtypes = df.dtypes
+        new_metadata = pandas_metadata.from_pandas(df)
         new_data = block_partitions_cls.from_pandas(df)
-        return cls(new_data, new_index, new_columns, dtypes=new_dtypes)
+        return cls(block_partitions_object=new_data, index=new_index, columns=new_columns, metadata=new_metadata)
 
     # END To/From Pandas
 
@@ -1058,7 +1064,10 @@ class PandasQueryCompiler(BaseQueryCompiler):
     # These operations are operations that apply a function to every partition.
     def _map_partitions(self, func, new_dtypes=None):
         return self.__constructor__(
-            self.data.map_across_blocks(func), self.index, self.columns, new_dtypes
+            block_partitions_object=self.data.map_across_blocks(func),
+            index=self.index,
+            columns=self.columns,
+            metadata=None  # We can't materialize metadata as a whole now because the map can change mem_usage
         )
 
     def abs(self):
@@ -1178,10 +1187,10 @@ class PandasQueryCompiler(BaseQueryCompiler):
         result = self.data.map_across_full_axis(axis, func)
         if axis == 0:
             columns = alternate_index if alternate_index is not None else self.columns
-            return self.__constructor__(result, index=["__reduced__"], columns=columns)
+            return self.__constructor__(block_partitions_object=result, index=["__reduced__"], columns=columns)
         else:
             index = alternate_index if alternate_index is not None else self.index
-            return self.__constructor__(result, index=index, columns=["__reduced__"])
+            return self.__constructor__(block_partitions_object=result, index=index, columns=["__reduced__"])
 
     def first_valid_index(self):
         """Returns index of first non-NaN/NULL value.
@@ -1848,7 +1857,7 @@ class PandasQueryCompiler(BaseQueryCompiler):
             )
         else:
             result = self.__constructor__(
-                self.data.take(0, n), self.index[:n], self.columns, self._dtype_cache
+                block_partitions_object=self.data.take(0, n), index=self.index[:n], columns=self.columns, metadata=self._metadata_cache
             )
         return result
 
@@ -1874,7 +1883,10 @@ class PandasQueryCompiler(BaseQueryCompiler):
             )
         else:
             result = self.__constructor__(
-                self.data.take(0, -n), self.index[-n:], self.columns, self._dtype_cache
+                block_partitions_object=self.data.take(0, -n),
+                index=self.index[-n:],
+                columns=self.columns,
+                metadata=self._metadata_cache
             )
         return result
 
@@ -2066,7 +2078,7 @@ class PandasQueryCompiler(BaseQueryCompiler):
             new_index = self.index[~self.index.isin(index)]
         if columns is None:
             new_columns = self.columns
-            new_dtypes = self.dtypes
+            new_metadata = self._metadata_cache
         else:
 
             def delitem(df, internal_indices=[]):
@@ -2078,8 +2090,22 @@ class PandasQueryCompiler(BaseQueryCompiler):
             )
 
             new_columns = self.columns[~self.columns.isin(columns)]
-            new_dtypes = self.dtypes.drop(columns)
-        return self.__constructor__(new_data, new_index, new_columns, new_dtypes)
+            metadata = self.metadata
+            new_dtypes = metadata.dtypes.drop(columns)
+            new_counts = metadata.counts.drop(columns)
+            new_memusage_deep = metadata.mem_usage_deep.drop(columns)
+            new_memusage_shallow = metadata.mem_usage_shallow.drop(columns)
+
+            new_metadata = PandasMetaData(
+                dtypes=new_dtypes,
+                counts=new_counts,
+                mem_usage_deep=new_memusage_deep,
+                mem_usage_shallow=new_memusage_shallow
+            )
+        return self.__constructor__(block_partitions_object=new_data,
+                                    index=new_index,
+                                    columns=new_columns,
+                                    metadata=new_metadata)
 
     # END Drop
 
@@ -2120,7 +2146,7 @@ class PandasQueryCompiler(BaseQueryCompiler):
             0, insert, loc, keep_remaining=True
         )
         new_columns = self.columns.insert(loc, column)
-        return self.__constructor__(new_data, self.index, new_columns)
+        return self.__constructor__(block_partitions_object=new_data, index=self.index, columns=new_columns)
 
     # END Insert
 
