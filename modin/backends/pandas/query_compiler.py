@@ -26,7 +26,13 @@ class PandasQueryCompiler(BaseQueryCompiler):
         with a Pandas backend. This logic is specific to Pandas."""
 
     def __init__(
-        self, *temp, block_partitions_object, index, columns, dtypes=None, is_transposed=False
+        self,
+        *temp,
+        block_partitions_object,
+        index,
+        columns,
+        dtypes=None,
+        is_transposed=False
     ):
         assert isinstance(block_partitions_object, BaseFrameManager)
         self.data = block_partitions_object
@@ -40,6 +46,7 @@ class PandasQueryCompiler(BaseQueryCompiler):
 
     def _get_metadata(self):
         if not self._metadata_cache:
+
             def get_info_builder(df):
                 dtypes = df.dtypes
                 counts = df.count()
