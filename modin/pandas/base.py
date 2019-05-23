@@ -44,7 +44,10 @@ class BasePandasDataset(object):
             head = self._query_compiler
             tail = None
         else:
-            head = self._query_compiler.head(num_rows_for_head)
+            try:
+                head = self._query_compiler.head(num_rows_for_head)
+            except TypeError as e:
+                print(e)
             tail = self._query_compiler.tail(num_rows_for_head)
 
         if not hasattr(self, "columns") or len(self.columns) <= num_cols:

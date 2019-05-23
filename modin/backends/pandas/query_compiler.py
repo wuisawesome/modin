@@ -606,6 +606,7 @@ class PandasQueryCompiler(BaseQueryCompiler):
         Returns:
             New DataManager with new data and index.
         """
+        print("Entering inter df op handler")
         axis = kwargs.get("axis", 0)
         axis = pandas.DataFrame()._get_axis_number(axis) if axis is not None else 0
         if isinstance(other, type(self)):
@@ -613,9 +614,11 @@ class PandasQueryCompiler(BaseQueryCompiler):
                 other, "outer", lambda x, y: func(x, y, **kwargs)
             )
         else:
-            return self._scalar_operations(
+            print("Scalar op")
+            temp = self._scalar_operations(
                 axis, other, lambda df: func(df, other, **kwargs)
             )
+            return temp
 
     def binary_op(self, op, other, **kwargs):
         """Perform an operation between two objects.
@@ -761,6 +764,7 @@ class PandasQueryCompiler(BaseQueryCompiler):
         Returns:
             A new QueryCompiler with updated data and new index.
         """
+        print("Entering scalar op")
         if isinstance(scalar, (list, np.ndarray, pandas.Series)):
             new_index = self.index if axis == 0 else self.columns
 
@@ -778,7 +782,10 @@ class PandasQueryCompiler(BaseQueryCompiler):
                 block_partitions_object=new_data, index=self.index, columns=self.columns
             )
         else:
-            return self._map_partitions(self._prepare_method(func))
+            print("Not a series")
+            temp = self._map_partitions(self._prepare_method(func))
+            print("Exiting scalar op")
+            return temp
 
     # END Single Manager scalar operations
 
@@ -1111,12 +1118,15 @@ class PandasQueryCompiler(BaseQueryCompiler):
     # Map partitions operations
     # These operations are operations that apply a function to every partition.
     def _map_partitions(self, func, new_dtypes=None):
-        return self.__constructor__(
+        print("Entering map partitions")
+        temp = self.__constructor__(
             block_partitions_object=self.data.map_across_blocks(func),
             index=self.index,
             columns=self.columns,
             metadata=None,  # We can't materialize metadata as a whole now because the map can change mem_usage
         )
+        print("Exiting map partitions")
+        return temp
 
     def abs(self):
         func = self._prepare_method(pandas.DataFrame.abs)
