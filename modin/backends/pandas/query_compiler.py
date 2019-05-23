@@ -2691,7 +2691,11 @@ class PandasQueryCompilerView(PandasQueryCompiler):
         self.columns_map = columns_map_series
 
         PandasQueryCompiler.__init__(
-            self, block_partitions_object=block_partitions_object, index=index, columns=columns, metadata=metadata
+            self,
+            block_partitions_object=block_partitions_object,
+            index=index,
+            columns=columns,
+            metadata=metadata,
         )
 
     @property
