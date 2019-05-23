@@ -229,7 +229,7 @@ class PandasQueryCompiler(BaseQueryCompiler):
             new_columns = self.columns.map(lambda x: str(prefix) + str(x))
             if self._metadata_cache is not None:
                 new_metadata_cache = self._metadata_cache.copy()
-                new_metadata_cache.set_index(new_columns)
+                new_metadata_cache.modify_all(set_index(new_columns))
             else:
                 new_metadata_cache = None
             new_index = self.index
@@ -2589,7 +2589,7 @@ class PandasQueryCompiler(BaseQueryCompiler):
             self.data,
             index_map_series.index,
             column_map_series.index,
-            self._dtype_cache,
+            self._metadata_cache,
             index_map_series,
             column_map_series,
         )
@@ -2671,7 +2671,7 @@ class PandasQueryCompilerView(PandasQueryCompiler):
         block_partitions_object,
         index,
         columns,
-        dtypes=None,
+        metadata=None,
         index_map_series=None,
         columns_map_series=None,
     ):
@@ -2691,7 +2691,7 @@ class PandasQueryCompilerView(PandasQueryCompiler):
         self.columns_map = columns_map_series
 
         PandasQueryCompiler.__init__(
-            self, block_partitions_object, index, columns, dtypes
+            self, block_partitions_object=block_partitions_object, index=index, columns=columns, metadata=metadata
         )
 
     @property
