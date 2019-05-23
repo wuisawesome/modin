@@ -42,8 +42,10 @@ def from_pandas(df):
         mem_usage_shallow=mem_usage_shallow,
     )
 
+
 def set_index(new_index):
     def helper(series):
         series.index = new_index
         return series
+
     return helper

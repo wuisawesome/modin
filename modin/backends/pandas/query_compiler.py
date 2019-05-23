@@ -242,7 +242,7 @@ class PandasQueryCompiler(BaseQueryCompiler):
             index=new_index,
             columns=new_columns,
             metadata=new_metadata_cache,
-            is_transposed=self._is_transposed
+            is_transposed=self._is_transposed,
         )
 
     def add_suffix(self, suffix, axis=1):
@@ -266,7 +266,7 @@ class PandasQueryCompiler(BaseQueryCompiler):
             index=new_index,
             columns=new_columns,
             metadata=new_metadata_cache,
-            is_transposed=self._is_transposed
+            is_transposed=self._is_transposed,
         )
 
     # END Metadata modification methods
@@ -281,7 +281,7 @@ class PandasQueryCompiler(BaseQueryCompiler):
             index=self.index.copy(),
             columns=self.columns.copy(),
             metadata=self._metadata_cache,
-            is_transposed=self._is_transposed
+            is_transposed=self._is_transposed,
         )
 
     # END Copy
@@ -372,11 +372,15 @@ class PandasQueryCompiler(BaseQueryCompiler):
                     len(self.index) + sum(len(other.index) for other in others)
                 )
             )
-            return self.__constructor__(block_partitions_object=new_data, index=new_index, columns=joined_axis)
+            return self.__constructor__(
+                block_partitions_object=new_data, index=new_index, columns=joined_axis
+            )
         else:
             # The columns will be appended to form the final columns.
             new_columns = self.columns.append([other.columns for other in others])
-            return self.__constructor__(index=new_data, axis=joined_axis, columns=new_columns)
+            return self.__constructor__(
+                index=new_data, axis=joined_axis, columns=new_columns
+            )
 
     def _join_list_of_managers(self, others, **kwargs):
         assert isinstance(
@@ -404,7 +408,9 @@ class PandasQueryCompiler(BaseQueryCompiler):
         new_columns = self_proxy.join(
             others_proxy, lsuffix=lsuffix, rsuffix=rsuffix
         ).columns
-        return self.__constructor__(block_partitions_object=new_data, index=joined_index, columns=new_columns)
+        return self.__constructor__(
+            block_partitions_object=new_data, index=joined_index, columns=new_columns
+        )
 
     # END Append/Concat/Join
 
@@ -586,7 +592,9 @@ class PandasQueryCompiler(BaseQueryCompiler):
         new_data = reindexed_self.inter_data_operation(
             1, lambda l, r: inter_data_op_builder(l, r, func), reindexed_other
         )
-        return self.__constructor__(block_partitions_object=new_data, index=joined_index, columns=new_columns)
+        return self.__constructor__(
+            block_partitions_object=new_data, index=joined_index, columns=new_columns
+        )
 
     def _inter_df_op_handler(self, func, other, **kwargs):
         """Helper method for inter-manager and scalar operations.
@@ -706,7 +714,11 @@ class PandasQueryCompiler(BaseQueryCompiler):
             final_pass = self._inter_manager_operations(
                 first_pass, "left", where_builder_second_pass
             )
-            return self.__constructor__(block_partitions_object=final_pass.data, index=self.index, columns=self.columns)
+            return self.__constructor__(
+                block_partitions_object=final_pass.data,
+                index=self.index,
+                columns=self.columns,
+            )
         else:
             axis = kwargs.get("axis", 0)
             # Rather than serializing and passing in the index/columns, we will
@@ -731,7 +743,9 @@ class PandasQueryCompiler(BaseQueryCompiler):
             new_data = reindexed_self.inter_data_operation(
                 axis, lambda l, r: where_builder_series(l, r), reindexed_cond
             )
-            return self.__constructor__(block_partitions_object=new_data, index=self.index, columns=self.columns)
+            return self.__constructor__(
+                block_partitions_object=new_data, index=self.index, columns=self.columns
+            )
 
     # END Inter-Data operations
 
@@ -760,7 +774,9 @@ class PandasQueryCompiler(BaseQueryCompiler):
             new_data = self._map_across_full_axis(
                 axis, self._prepare_method(list_like_op)
             )
-            return self.__constructor__(block_partitions_object=new_data, index=self.index, columns=self.columns)
+            return self.__constructor__(
+                block_partitions_object=new_data, index=self.index, columns=self.columns
+            )
         else:
             return self._map_partitions(self._prepare_method(func))
 
@@ -817,7 +833,9 @@ class PandasQueryCompiler(BaseQueryCompiler):
         # assumes identical partitioning. Internally, we *may* change the
         # partitioning during a map across a full axis.
         new_data = self._map_across_full_axis(axis, func)
-        return self.__constructor__(block_partitions_object=new_data, index=new_index, columns=new_columns)
+        return self.__constructor__(
+            block_partitions_object=new_data, index=new_index, columns=new_columns
+        )
 
     def reset_index(self, **kwargs):
         """Removes all levels from index and sets a default level_0 index.
@@ -834,7 +852,9 @@ class PandasQueryCompiler(BaseQueryCompiler):
                 new_columns = new_column_names.append(self.columns)
                 index_data = pandas.DataFrame(list(zip(*self.index))).T
                 result = self.data.from_pandas(index_data).concat(1, self.data)
-                return self.__constructor__(block_partitions_object=result, index=new_index, columns=new_columns)
+                return self.__constructor__(
+                    block_partitions_object=result, index=new_index, columns=new_columns
+                )
             else:
                 new_column_name = (
                     self.index.name
@@ -845,7 +865,11 @@ class PandasQueryCompiler(BaseQueryCompiler):
                 )
                 new_columns = self.columns.insert(0, new_column_name)
                 result = self.insert(0, new_column_name, self.index)
-                return self.__constructor__(block_partitions_object=result.data, index=new_index, columns=new_columns)
+                return self.__constructor__(
+                    block_partitions_object=result.data,
+                    index=new_index,
+                    columns=new_columns,
+                )
         else:
             # The copies here are to ensure that we do not give references to
             # this object for the purposes of updates.
@@ -853,7 +877,7 @@ class PandasQueryCompiler(BaseQueryCompiler):
                 block_partitions_object=self.data.copy(),
                 index=new_index,
                 columns=self.columns.copy(),
-                metadata=self._metadata_cache
+                metadata=self._metadata_cache,
             )
 
     # END Reindex/reset_index
@@ -880,7 +904,7 @@ class PandasQueryCompiler(BaseQueryCompiler):
             block_partitions_object=new_data,
             index=self.columns,
             columns=self.index,
-            is_transposed=self._is_transposed ^ 1
+            is_transposed=self._is_transposed ^ 1,
         )
         return new_manager
 
@@ -911,7 +935,9 @@ class PandasQueryCompiler(BaseQueryCompiler):
         if axis == 0:
             columns = self.columns
             return self.__constructor__(
-                block_partitions_object=full_frame, index=["__reduced__"], columns=columns
+                block_partitions_object=full_frame,
+                index=["__reduced__"],
+                columns=columns,
             )
         else:
             index = self.index
@@ -1187,7 +1213,7 @@ class PandasQueryCompiler(BaseQueryCompiler):
             block_partitions_object=new_data,
             index=self.index,
             columns=self.columns,
-            metadata=None  # TODO: Figure out how to recompute mem_usage here
+            metadata=None,  # TODO: Figure out how to recompute mem_usage here
         )
 
     # END Map partitions across select indices
@@ -1460,7 +1486,9 @@ class PandasQueryCompiler(BaseQueryCompiler):
         func = self._prepare_method(describe_builder, **kwargs)
         new_data = self._full_axis_reduce_along_select_indices(func, 0, new_columns)
         new_index = self.compute_index(0, new_data, False)
-        return self.__constructor__(block_partitions_object=new_data, index=new_index, columns=new_columns)
+        return self.__constructor__(
+            block_partitions_object=new_data, index=new_index, columns=new_columns
+        )
 
     # END Column/Row partitions reduce operations over select indices
 
@@ -1479,7 +1507,7 @@ class PandasQueryCompiler(BaseQueryCompiler):
             block_partitions_object=new_data,
             index=self.index,
             columns=self.columns,
-            metadata=self._metadata_cache
+            metadata=self._metadata_cache,
         )
 
     def cummax(self, **kwargs):
@@ -1513,7 +1541,9 @@ class PandasQueryCompiler(BaseQueryCompiler):
         axis = kwargs.get("axis", 0)
         func = self._prepare_method(pandas.DataFrame.diff, **kwargs)
         new_data = self._map_across_full_axis(axis, func)
-        return self.__constructor__(block_partitions_object=new_data, index=self.index, columns=self.columns)
+        return self.__constructor__(
+            block_partitions_object=new_data, index=self.index, columns=self.columns
+        )
 
     def dropna(self, **kwargs):
         """Returns a new QueryCompiler with null values dropped along given axis.
@@ -1617,7 +1647,9 @@ class PandasQueryCompiler(BaseQueryCompiler):
         else:
             new_columns = columns_copy.columns
             new_index = self.index
-        return self.__constructor__(block_partitions_object=new_data, index=new_index, columns=new_columns)
+        return self.__constructor__(
+            block_partitions_object=new_data, index=new_index, columns=new_columns
+        )
 
     def mode(self, **kwargs):
         """Returns a new QueryCompiler with modes calculated for each label along given axis.
@@ -1658,7 +1690,7 @@ class PandasQueryCompiler(BaseQueryCompiler):
             block_partitions_object=new_data,
             index=new_index,
             columns=new_columns,
-            metadata=new_metadata
+            metadata=new_metadata,
         ).dropna(axis=axis, how="all")
 
     def fillna(self, **kwargs):
@@ -1689,11 +1721,15 @@ class PandasQueryCompiler(BaseQueryCompiler):
             new_data = self.data.apply_func_to_select_indices(
                 axis, fillna_dict_builder, value, keep_remaining=True
             )
-            return self.__constructor__(block_partitions_object=new_data, index=self.index, columns=self.columns)
+            return self.__constructor__(
+                block_partitions_object=new_data, index=self.index, columns=self.columns
+            )
         else:
             func = self._prepare_method(pandas.DataFrame.fillna, **kwargs)
             new_data = self._map_across_full_axis(axis, func)
-            return self.__constructor__(block_partitions_object=new_data, index=self.index, columns=self.columns)
+            return self.__constructor__(
+                block_partitions_object=new_data, index=self.index, columns=self.columns
+            )
 
     def query(self, expr, **kwargs):
         """Query columns of the DataManager with a boolean expression.
@@ -1721,7 +1757,12 @@ class PandasQueryCompiler(BaseQueryCompiler):
         # Query removes rows, so we need to update the index
         new_index = self.compute_index(0, new_data, True)
 
-        return self.__constructor__(block_partitions_object=new_data, index=new_index, columns=self.columns, metadata=self._metadata_cache)
+        return self.__constructor__(
+            block_partitions_object=new_data,
+            index=new_index,
+            columns=self.columns,
+            metadata=self._metadata_cache,
+        )
 
     def rank(self, **kwargs):
         """Computes numerical rank along axis. Equal values are set to the average.
@@ -1743,7 +1784,7 @@ class PandasQueryCompiler(BaseQueryCompiler):
             block_partitions_object=new_data,
             index=self.index,
             columns=new_columns,
-            metadata=None  # TODO: Calculate the mem_usage this new table
+            metadata=None,  # TODO: Calculate the mem_usage this new table
         )
 
     def sort_index(self, **kwargs):
@@ -1779,7 +1820,11 @@ class PandasQueryCompiler(BaseQueryCompiler):
             new_index = pandas.Series(self.index).sort_values(**kwargs)
             new_columns = self.columns
         return self.__constructor__(
-            block_partitions_object=new_data, index=new_index, columns=new_columns, metadata=self._metadata_cache, is_transposed=self._is_transposed
+            block_partitions_object=new_data,
+            index=new_index,
+            columns=new_columns,
+            metadata=self._metadata_cache,
+            is_transposed=self._is_transposed,
         )
 
     # END Map across rows/columns
@@ -1861,7 +1906,9 @@ class PandasQueryCompiler(BaseQueryCompiler):
         if axis == 1:
             q_index = new_columns
             new_columns = pandas.Float64Index(q)
-        result = self.__constructor__(block_partitions_object=new_data, index=q_index, columns=new_columns)
+        result = self.__constructor__(
+            block_partitions_object=new_data, index=q_index, columns=new_columns
+        )
         return result.transpose() if axis == 1 else result
 
     # END Map across rows/columns
@@ -1898,7 +1945,7 @@ class PandasQueryCompiler(BaseQueryCompiler):
                 block_partitions_object=self.data.take(0, n),
                 index=self.index[:n],
                 columns=self.columns,
-                metadata=None  # Can't keep the metadata because mem_usage is hard to calculate
+                metadata=None,  # Can't keep the metadata because mem_usage is hard to calculate
             )
         return result
 
@@ -1920,14 +1967,14 @@ class PandasQueryCompiler(BaseQueryCompiler):
                 index=self.index[-n:],
                 columns=self.columns,
                 metadata=None,  # Can't keep the metadata because mem_usage is hard to calculate
-                is_transposed=self._is_transposed
+                is_transposed=self._is_transposed,
             )
         else:
             result = self.__constructor__(
                 block_partitions_object=self.data.take(0, -n),
                 index=self.index[-n:],
                 columns=self.columns,
-                metadata=None  # Can't keep the metadata because mem_usage is hard to calculate
+                metadata=None,  # Can't keep the metadata because mem_usage is hard to calculate
             )
         return result
 
@@ -1959,7 +2006,7 @@ class PandasQueryCompiler(BaseQueryCompiler):
                 block_partitions_object=self.data.take(1, n),
                 index=self.index,
                 columns=self.columns[:n],
-                metadata=new_metadata
+                metadata=new_metadata,
             )
         return result
 
@@ -1991,7 +2038,7 @@ class PandasQueryCompiler(BaseQueryCompiler):
                 block_partitions_object=self.data.take(1, -n),
                 index=self.index,
                 columns=self.columns[-n:],
-                metadata=new_metadata
+                metadata=new_metadata,
             )
         return result
 
@@ -2027,7 +2074,12 @@ class PandasQueryCompiler(BaseQueryCompiler):
         else:
             new_metadata = self._metadata_cache.copy()
             new_metadata.modify_all(lambda x: x[numeric_indices])
-        return self.__constructor__(block_partitions_object=result, index=self.index, columns=new_columns, metadata=new_metadata)
+        return self.__constructor__(
+            block_partitions_object=result,
+            index=self.index,
+            columns=new_columns,
+            metadata=new_metadata,
+        )
 
     def getitem_row_array(self, key):
         """Get row data for target labels.
@@ -2051,7 +2103,12 @@ class PandasQueryCompiler(BaseQueryCompiler):
         # We can't just set the index to key here because there may be multiple
         # instances of a key.
         new_index = self.index[key]
-        return self.__constructor__(block_partitions_object=result, index=new_index, columns=self.columns, metadata=self._metadata_cache)
+        return self.__constructor__(
+            block_partitions_object=result,
+            index=new_index,
+            columns=self.columns,
+            metadata=self._metadata_cache,
+        )
 
     def setitem(self, axis, key, value):
         """Set the column defined by `key` to the `value` provided.
@@ -2098,7 +2155,9 @@ class PandasQueryCompiler(BaseQueryCompiler):
             new_data = self.data.apply_func_to_select_indices(
                 axis, prepared_func, numeric_indices, keep_remaining=True
             )
-        return self.__constructor__(block_partitions_object=new_data, index=self.index, columns=self.columns)
+        return self.__constructor__(
+            block_partitions_object=new_data, index=self.index, columns=self.columns
+        )
 
     # END __getitem__ methods
 
@@ -2270,7 +2329,9 @@ class PandasQueryCompiler(BaseQueryCompiler):
                 index = internal_index
             else:
                 index = self.index
-        return self.__constructor__(block_partitions_object=result_data, index=index, columns=columns)
+        return self.__constructor__(
+            block_partitions_object=result_data, index=index, columns=columns
+        )
 
     def _dict_func(self, func, axis, *args, **kwargs):
         """Apply function to certain indices across given axis.
@@ -2327,7 +2388,9 @@ class PandasQueryCompiler(BaseQueryCompiler):
             if axis == 1
             else self.columns
         )
-        return self.__constructor__(block_partitions_object=new_data, index=new_index, columns=new_columns)
+        return self.__constructor__(
+            block_partitions_object=new_data, index=new_index, columns=new_columns
+        )
 
     def _callable_func(self, func, axis, *args, **kwargs):
         """Apply callable functions across given axis.
@@ -2424,7 +2487,9 @@ class PandasQueryCompiler(BaseQueryCompiler):
         if len(columns) == 0 and len(index) != 0:
             return self._post_process_apply(result_data, axis, try_scale=True)
         else:
-            return self.__constructor__(block_partitions_object=result_data, index=index, columns=columns)
+            return self.__constructor__(
+                block_partitions_object=result_data, index=index, columns=columns
+            )
 
     # END Manual Partitioning methods
 
@@ -2583,7 +2648,11 @@ class PandasQueryCompiler(BaseQueryCompiler):
             if new_col_labels
             else self.columns
         )
-        return self.__constructor__(block_partitions_object=new_data, index=concated_index, columns=concated_columns)
+        return self.__constructor__(
+            block_partitions_object=new_data,
+            index=concated_index,
+            columns=concated_columns,
+        )
 
 
 class PandasQueryCompilerView(PandasQueryCompiler):
