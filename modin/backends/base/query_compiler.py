@@ -21,10 +21,7 @@ class BaseQueryCompiler(object):
     def _get_dtype(self):
         raise NotImplementedError("Must be implemented in children classes")
 
-    def _set_dtype(self, dtypes):
-        raise NotImplementedError("Must be implemented in children classes")
-
-    dtypes = property(_get_dtype, _set_dtype)
+    dtypes = property(_get_dtype)
 
     def compute_index(self, axis, data_object, compute_diff=True):
         """Computes the index after a number of rows have been removed.

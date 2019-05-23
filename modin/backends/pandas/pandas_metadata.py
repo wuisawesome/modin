@@ -8,6 +8,13 @@ class PandasMetaData:
         self.mem_usage_deep = mem_usage_deep
         self.mem_usage_shallow = mem_usage_shallow
 
+    # This method should really just be used to modify the index/select. f should take in and output a series
+    def modify_all(self, f):
+        self.dtypes = f(self.dtypes)
+        self.counts = f(self.counts)
+        self.mem_usage_deep = f(self.mem_usage_deep)
+        self.mem_usage_shallow = f(self.mem_usage_shallow)
+
     def copy(self):
         return PandasMetaData(
             dtypes=self.dtypes,
@@ -34,3 +41,9 @@ def from_pandas(df):
         mem_usage_deep=mem_usage_deep,
         mem_usage_shallow=mem_usage_shallow,
     )
+
+def set_index(new_index):
+    def helper(series):
+        series.index = new_index
+        return series
+    return helper
